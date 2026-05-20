@@ -227,3 +227,9 @@ const SEASON_DATA: Record<SeasonType, DiagnosisResult> = {
     styleKeywords: ['高冷御姐', '极简主义', '都市摩登', '戏剧高级', '欧美大气'],
   },
 }
+
+export { SEASON_DATA }
+
+export function getSeasonResult(season: SeasonType): DiagnosisResult {
+  return SEASON_DATA[season]
+}

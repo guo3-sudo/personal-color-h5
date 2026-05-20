@@ -59,7 +59,16 @@ function analyzePhoto() {
     canvas.height = img.height
     const ctx = canvas.getContext('2d')!
     ctx.drawImage(img, 0, 0)
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    // After circle-crop the face is centred; sample the inner 40% to avoid
+    // hair/background contamination at the crop edges
+    const cx = img.width / 2
+    const cy = img.height * 0.46
+    const r = Math.min(img.width, img.height) * 0.38
+    const sx = Math.max(0, Math.round(cx - r))
+    const sy = Math.max(0, Math.round(cy - r))
+    const sw = Math.min(img.width - sx, Math.round(r * 2))
+    const sh = Math.min(img.height - sy, Math.round(r * 2))
+    const imageData = ctx.getImageData(sx, sy, sw, sh)
     const analysis = analyzeSkinColor(imageData)
     if (!analysis) {
       errorMsg.value = '未能提取有效肤色，建议选择光线充足的正面素颜照'

@@ -22,6 +22,11 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
     error.value = msg
   }
 
+  function overrideResult(diagnosis: DiagnosisResult) {
+    if (!result.value) return
+    result.value = { ...diagnosis, confidence: result.value.confidence }
+  }
+
   function reset() {
     capturedImage.value = null
     skinAnalysis.value = null
@@ -30,5 +35,5 @@ export const useDiagnosisStore = defineStore('diagnosis', () => {
     error.value = null
   }
 
-  return { capturedImage, skinAnalysis, result, isAnalyzing, error, setCapturedImage, setResult, setError, reset }
+  return { capturedImage, skinAnalysis, result, isAnalyzing, error, setCapturedImage, setResult, setError, overrideResult, reset }
 })
