@@ -1,28 +1,60 @@
-const SEASON_PROMPTS = {
-  SPRING: [
-    'Korean fashion lookbook, spring warm color palette outfit, peach coral chiffon blouse with cream wide-leg trousers, gold accessories, fresh vibrant feminine, full body professional fashion photo, soft natural light, clean background',
-    'Korean street style, warm spring tones, ivory knit cardigan over salmon pink floral midi skirt, straw bag, bright airy aesthetic, full body fashion photo, sunny outdoor setting',
-    'Korean feminine style, spring warm palette, warm beige blazer with apricot blouse and camel culottes, delicate gold jewelry, fresh polished look, full body fashion editorial',
-    'Korean casual chic, spring warm colors, coral off-shoulder top with khaki linen wide pants, woven sandals, warm natural vibe, full body lookbook photo, light bokeh',
-  ],
-  SUMMER: [
-    'Korean fashion lookbook, summer cool color palette outfit, lavender mauve chiffon wrap dress with powder blue cardigan, silver accessories, soft muted elegant feminine, full body professional fashion photo, soft studio light',
-    'Korean minimal style, cool summer tones, dusty rose silk blouse with steel blue wide-leg trousers, understated chic, full body fashion photo, clean white background',
-    'Korean feminine style, summer cool palette, soft lilac blazer set with periwinkle inner top, silver jewelry, refined graceful look, full body fashion editorial, pastel background',
-    'Korean casual chic, summer cool colors, mauve ribbed knit top with light gray palazzo pants, lavender tote bag, ethereal soft aesthetic, full body lookbook photo',
-  ],
-  AUTUMN: [
-    'Korean fashion lookbook, autumn warm color palette outfit, rust orange turtleneck with camel wool long coat, brown leather boots, rich earthy sophisticated, full body professional fashion photo, warm golden lighting',
-    'Korean street style, warm autumn tones, mustard yellow oversized sweater over olive green midi skirt, brown belt and boots, cozy chic aesthetic, full body fashion photo, autumn leaves background',
-    'Korean feminine style, autumn warm palette, terracotta suede wrap dress with warm brown leather belt, amber earrings, elegant grounded look, full body fashion editorial',
-    'Korean casual chic, autumn warm colors, burnt sienna blazer with dark chocolate turtleneck and camel wide pants, tortoiseshell accessories, sophisticated warm aesthetic, full body lookbook photo',
-  ],
-  WINTER: [
-    'Korean fashion lookbook, winter cool color palette outfit, navy double-breasted blazer with crisp white shirt and black tailored trousers, silver jewelry, sharp polished, full body professional fashion photo, dramatic studio light',
-    'Korean minimal style, cool winter tones, burgundy wine structured wool coat over black turtleneck and charcoal trousers, sleek editorial look, full body fashion photo, dark minimal background',
-    'Korean feminine style, winter cool palette, cobalt blue midi dress with black structured jacket, bold silver necklace, dramatic chic, full body fashion editorial',
-    'Korean casual chic, monochrome winter outfit, all-black coordinated set with white statement bag and silver boots, modern aesthetic, full body lookbook photo',
-  ],
+const PROMPTS = {
+  SPRING: {
+    outfit: [
+      'Korean fashion lookbook, spring warm color palette outfit, peach coral blouse with cream wide-leg trousers, gold accessories, full body professional fashion photo, soft natural light, clean background',
+      'Korean street style, warm spring tones, ivory knit cardigan over salmon pink midi skirt, warm and fresh aesthetic, full body fashion photo',
+    ],
+    hair: [
+      'Korean beauty portrait, layered warm-toned hair with caramel highlights, fresh spring warmth, professional portrait photography, high quality, detailed face',
+      'Korean hairstyle photo, honey golden waves with warm bronze tones, feminine spring vibe, beauty photography, close-up portrait',
+    ],
+    makeup: [
+      'Korean makeup look, spring warm palette, coral peach lips, warm peachy blush, golden bronze eye shadow, dewy fresh skin, beauty photography closeup portrait',
+      'Korean spring beauty, salmon lip gloss, light apricot blush, champagne shimmer eyes, natural glass skin, professional beauty photo',
+    ],
+  },
+  SUMMER: {
+    outfit: [
+      'Korean fashion lookbook, summer cool color palette outfit, lavender mauve chiffon dress with powder blue cardigan, silver accessories, full body fashion photo, soft studio light',
+      'Korean minimal style, cool summer tones, dusty rose blouse with steel blue wide-leg trousers, refined chic look, full body fashion photo',
+    ],
+    hair: [
+      'Korean beauty portrait, cool-toned ash hair with lavender highlights, soft summer aesthetic, professional portrait photography, high quality, detailed face',
+      'Korean hairstyle photo, platinum silver waves with cool violet tones, ethereal summer vibes, beauty photography, close-up portrait',
+    ],
+    makeup: [
+      'Korean makeup look, summer cool palette, muted rose lips, soft lavender blush, cool gray-violet eye shadow, porcelain skin, beauty photography closeup portrait',
+      'Korean summer beauty, dusty pink lip, periwinkle eye, mauve blush, cool dewy skin, professional beauty photo',
+    ],
+  },
+  AUTUMN: {
+    outfit: [
+      'Korean fashion lookbook, autumn warm color palette outfit, rust orange turtleneck with camel wool long coat, brown leather boots, full body professional fashion photo, warm golden lighting',
+      'Korean street style, warm autumn tones, mustard yellow oversized sweater over olive green midi skirt, cozy chic aesthetic, full body fashion photo',
+    ],
+    hair: [
+      'Korean beauty portrait, rich copper-brown hair with warm amber highlights, deep autumn richness, professional portrait photography, high quality, detailed face',
+      'Korean hairstyle photo, warm chestnut waves with golden bronze tones, sophisticated autumn vibe, beauty photography, close-up portrait',
+    ],
+    makeup: [
+      'Korean makeup look, autumn warm palette, brick red lips, warm terracotta blush, deep earthy brown eye shadow, rich warm skin, beauty photography closeup portrait',
+      'Korean autumn beauty, burnt sienna lip, caramel blush, golden bronze smoky eyes, warm glowing skin, professional beauty photo',
+    ],
+  },
+  WINTER: {
+    outfit: [
+      'Korean fashion lookbook, winter cool color palette outfit, navy double-breasted blazer with crisp white shirt and black tailored trousers, silver jewelry, full body professional fashion photo, dramatic studio light',
+      'Korean minimal style, cool winter tones, burgundy wine structured coat over black turtleneck, sleek and polished, full body fashion photo',
+    ],
+    hair: [
+      'Korean beauty portrait, jet black glossy hair with cool blue-black tones, sharp winter elegance, professional portrait photography, high quality, detailed face',
+      'Korean hairstyle photo, dark near-black hair with cool graphite highlights, dramatic winter sophistication, beauty photography, close-up portrait',
+    ],
+    makeup: [
+      'Korean makeup look, winter cool palette, true red lips, cool rosy blush, deep navy-gray eye shadow, porcelain cool skin, beauty photography closeup portrait',
+      'Korean winter beauty, wine red lip, icy pink blush, dramatic dark eye, flawless cool skin, professional beauty photo',
+    ],
+  },
 }
 
 exports.handler = async (event) => {
@@ -51,10 +83,13 @@ exports.handler = async (event) => {
     }
   }
 
-  let season
+  let season, type, faceImage, count
   try {
     const body = JSON.parse(event.body || '{}')
     season = body.season
+    type = body.type || 'outfit'
+    faceImage = body.faceImage || null
+    count = Math.min(body.count || 2, 2)
   } catch {
     return {
       statusCode: 400,
@@ -63,8 +98,8 @@ exports.handler = async (event) => {
     }
   }
 
-  const prompts = SEASON_PROMPTS[season]
-  if (!prompts) {
+  const seasonPrompts = PROMPTS[season]
+  if (!seasonPrompts) {
     return {
       statusCode: 400,
       headers: { 'Access-Control-Allow-Origin': '*' },
@@ -72,26 +107,34 @@ exports.handler = async (event) => {
     }
   }
 
+  const prompts = seasonPrompts[type] || seasonPrompts.outfit
+
   const generate = async (prompt) => {
+    const requestBody = {
+      model: 'Kwai-Kolors/Kolors',
+      prompt,
+      image_size: type === 'outfit' ? '512x768' : '512x768',
+      num_inference_steps: 20,
+      guidance_scale: faceImage ? 7 : 5,
+      n: 1,
+    }
+
+    if (faceImage) {
+      requestBody.image = faceImage
+    }
+
     const res = await fetch('https://api.siliconflow.cn/v1/images/generations', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'Kwai-Kolors/Kolors',
-        prompt,
-        image_size: '512x768',
-        num_inference_steps: 20,
-        guidance_scale: 5,
-        n: 1,
-      }),
+      body: JSON.stringify(requestBody),
     })
 
     if (!res.ok) {
       const text = await res.text()
-      throw new Error(`SiliconFlow error ${res.status}: ${text}`)
+      throw new Error(`SiliconFlow ${res.status}: ${text}`)
     }
 
     const data = await res.json()
@@ -107,7 +150,8 @@ exports.handler = async (event) => {
   }
 
   try {
-    const images = await Promise.all(prompts.map(generate))
+    const selectedPrompts = prompts.slice(0, count)
+    const images = await Promise.all(selectedPrompts.map(generate))
     return {
       statusCode: 200,
       headers: {

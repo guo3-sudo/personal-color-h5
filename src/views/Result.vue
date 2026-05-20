@@ -12,10 +12,17 @@ const result = computed(() => store.result)
 
 const resultRef = ref<HTMLElement | null>(null)
 const outfitImages = ref<string[]>([])
-const isGeneratingOutfit = ref(false)
+const hairImages = ref<string[]>([])
+const makeupImages = ref<string[]>([])
+const generatingOutfit = ref(false)
+const generatingHair = ref(false)
+const generatingMakeup = ref(false)
 const outfitError = ref(false)
+const hairError = ref(false)
+const makeupError = ref(false)
 const isSaving = ref(false)
 const showSeasonPicker = ref(false)
+const compressedFace = ref<string | null>(null)
 
 const SEASON_GRADIENT: Record<string, { from: string; to: string; text: string }> = {
   SPRING: { from: '#FFF4EC', to: '#FFE0D0', text: '#C45020' },
@@ -48,36 +55,76 @@ const makeupSections = [
   { key: 'eye' as const, label: '眼影', icon: '👁' },
 ]
 
-onMounted(() => {
+onMounted(async () => {
   if (!result.value) { router.replace('/'); return }
-  generateOutfits()
+  compressedFace.value = await compressImage(store.capturedImage!, 480)
+  generateAll()
 })
+
+async function compressImage(dataUrl: string, maxPx: number): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const scale = Math.min(maxPx / img.width, maxPx / img.height, 1)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+      resolve(canvas.toDataURL('image/jpeg', 0.82))
+    }
+    img.src = dataUrl
+  })
+}
+
+async function callGenerate(type: 'outfit' | 'hair' | 'makeup'): Promise<string[]> {
+  const res = await fetch('/.netlify/functions/generate-style', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      season: result.value!.season,
+      type,
+      count: 2,
+      faceImage: compressedFace.value,
+    }),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  return data.images ?? []
+}
+
+function generateAll() {
+  generateOutfits()
+  generateHair()
+  generateMakeup()
+}
+
+async function generateOutfits() {
+  generatingOutfit.value = true; outfitError.value = false
+  try { outfitImages.value = await callGenerate('outfit') }
+  catch { outfitError.value = true }
+  finally { generatingOutfit.value = false }
+}
+
+async function generateHair() {
+  generatingHair.value = true; hairError.value = false
+  try { hairImages.value = await callGenerate('hair') }
+  catch { hairError.value = true }
+  finally { generatingHair.value = false }
+}
+
+async function generateMakeup() {
+  generatingMakeup.value = true; makeupError.value = false
+  try { makeupImages.value = await callGenerate('makeup') }
+  catch { makeupError.value = true }
+  finally { generatingMakeup.value = false }
+}
 
 function overrideSeason(season: SeasonType) {
   if (!store.result) return
   store.overrideResult(getSeasonResult(season))
   showSeasonPicker.value = false
-  outfitImages.value = []
-  generateOutfits()
-}
-
-async function generateOutfits() {
-  isGeneratingOutfit.value = true
-  outfitError.value = false
-  try {
-    const res = await fetch('/.netlify/functions/generate-style', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ season: result.value!.season, type: 'outfit', count: 2 }),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = await res.json()
-    outfitImages.value = (data.images ?? []).slice(0, 2)
-  } catch {
-    outfitError.value = true
-  } finally {
-    isGeneratingOutfit.value = false
-  }
+  outfitImages.value = []; hairImages.value = []; makeupImages.value = []
+  generateAll()
 }
 
 async function saveImage() {
@@ -134,22 +181,19 @@ async function saveImage() {
               </span>
             </div>
           </div>
-          <div class="px-5 pb-4">
-            <div class="flex flex-wrap gap-1.5">
-              <span
-                v-for="kw in result.styleKeywords"
-                :key="kw"
-                class="px-2.5 py-1 rounded-full text-xs font-medium bg-white/50"
-                :style="{ color: accentColor }"
-              >{{ kw }}</span>
-            </div>
+          <div class="px-5 pb-4 flex flex-wrap gap-1.5">
+            <span
+              v-for="kw in result.styleKeywords" :key="kw"
+              class="px-2.5 py-1 rounded-full text-xs font-medium bg-white/50"
+              :style="{ color: accentColor }"
+            >{{ kw }}</span>
           </div>
         </div>
 
-        <!-- ① 手动纠正 -->
+        <!-- 手动纠正 -->
         <div class="no-capture">
           <button
-            class="w-full text-xs text-gray-400 flex items-center justify-center gap-1.5 py-2"
+            class="w-full text-xs text-gray-400 flex items-center justify-center gap-1.5 py-1.5"
             @click="showSeasonPicker = !showSeasonPicker"
           >
             <span>{{ showSeasonPicker ? '▲' : '▼' }}</span>
@@ -158,12 +202,9 @@ async function saveImage() {
           <Transition name="slide-down">
             <div v-if="showSeasonPicker" class="bg-white rounded-2xl p-3 shadow-sm grid grid-cols-2 gap-2 mt-1">
               <button
-                v-for="s in ALL_SEASONS"
-                :key="s.season"
+                v-for="s in ALL_SEASONS" :key="s.season"
                 class="flex items-center gap-2.5 p-3 rounded-xl text-left transition-all border-2"
-                :class="result.season === s.season
-                  ? 'border-blush-300 bg-blush-50'
-                  : 'border-transparent bg-gray-50 active:bg-gray-100'"
+                :class="result.season === s.season ? 'border-blush-300 bg-blush-50' : 'border-transparent bg-gray-50 active:bg-gray-100'"
                 @click="overrideSeason(s.season)"
               >
                 <span class="text-2xl">{{ SEASON_EMOJI[s.season] }}</span>
@@ -178,9 +219,7 @@ async function saveImage() {
 
         <!-- ② 专属色盘 -->
         <div class="bg-white rounded-3xl p-4 shadow-sm">
-          <p class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <span>🎨</span> 专属色盘
-          </p>
+          <p class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2"><span>🎨</span> 专属色盘</p>
           <div class="grid grid-cols-4 gap-2.5">
             <div v-for="(hex, i) in result.palette" :key="hex" class="flex flex-col items-center gap-1">
               <div class="w-full aspect-square rounded-xl shadow-sm" :style="{ backgroundColor: hex }" />
@@ -189,100 +228,74 @@ async function saveImage() {
           </div>
         </div>
 
-        <!-- ③ 妆容用色 -->
+        <!-- ③ AI 穿搭参考 (2张，中等尺寸) -->
         <div class="bg-white rounded-3xl p-4 shadow-sm">
-          <p class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <span>💄</span> 妆容用色
-          </p>
-          <div class="space-y-3">
-            <div v-for="sec in makeupSections" :key="sec.key" class="flex items-center gap-3">
-              <span class="text-base w-5 shrink-0">{{ sec.icon }}</span>
-              <span class="text-xs text-gray-400 w-8 shrink-0">{{ sec.label }}</span>
-              <div class="flex gap-2">
-                <div
-                  v-for="hex in result.makeupColors[sec.key]"
-                  :key="hex"
-                  class="w-7 h-7 rounded-full shadow-sm border-2 border-white"
-                  :style="{ backgroundColor: hex }"
-                />
-              </div>
-            </div>
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-sm font-semibold text-gray-700 flex items-center gap-2"><span>✨</span> 穿搭参考</p>
+            <span v-if="generatingOutfit" class="text-[11px] text-blush-400 animate-pulse">生成中…</span>
+            <button v-else-if="outfitError" class="text-[11px] text-blush-400" @click="generateOutfits">重试</button>
           </div>
-          <p class="text-xs text-gray-400 mt-3 leading-relaxed">{{ result.makeupTips }}</p>
-        </div>
-
-        <!-- ④ 推荐发色 -->
-        <div class="bg-white rounded-3xl p-4 shadow-sm">
-          <p class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <span>✂️</span> 推荐发色
-          </p>
-          <div class="flex gap-3 items-center">
-            <div
-              v-for="hex in result.hairColors"
-              :key="hex"
-              class="w-12 h-12 rounded-2xl shadow-sm"
-              :style="{ backgroundColor: hex }"
-            />
-          </div>
-        </div>
-
-        <!-- ⑤ AI 穿搭参考（紧凑版，2张横排） -->
-        <div class="bg-white rounded-3xl p-4 shadow-sm">
-          <p class="text-sm font-semibold text-gray-700 mb-1 flex items-center justify-between">
-            <span class="flex items-center gap-2"><span>✨</span> 穿搭色彩参考</span>
-            <span v-if="isGeneratingOutfit" class="text-[11px] text-blush-400 animate-pulse font-normal">生成中…</span>
-          </p>
-          <p class="text-[11px] text-gray-400 mb-3">符合你季型调色盘的穿搭方向</p>
-
+          <p class="text-[11px] text-gray-400 mb-3">以你的面部色调为参考生成</p>
           <div class="grid grid-cols-2 gap-2">
-            <template v-if="isGeneratingOutfit">
-              <div v-for="i in 2" :key="i" class="aspect-[3/4] rounded-2xl bg-gradient-to-b from-blush-50 to-warm-stone/30 animate-pulse" />
+            <template v-if="generatingOutfit">
+              <div v-for="i in 2" :key="i" class="aspect-[3/4] rounded-2xl bg-blush-50 animate-pulse" />
             </template>
-            <template v-else-if="outfitImages.length">
-              <img
-                v-for="(url, i) in outfitImages"
-                :key="i"
-                :src="url"
-                class="aspect-[3/4] rounded-2xl object-cover w-full bg-gray-100"
-              />
-            </template>
-            <template v-else-if="outfitError">
-              <div class="col-span-2 text-center py-5">
-                <p class="text-sm text-gray-400 mb-2">生成失败</p>
-                <button class="px-4 py-1.5 rounded-full text-xs border border-blush-200 text-blush-400" @click="generateOutfits">重试</button>
-              </div>
-            </template>
+            <img v-for="(url, i) in outfitImages" v-else :key="i" :src="url" class="aspect-[3/4] rounded-2xl object-cover w-full bg-gray-100" />
           </div>
         </div>
 
-        <!-- ⑥ AI 发型 & 妆容效果（基于用户本人生成 - 开发中） -->
+        <!-- ④ AI 发型参考 -->
         <div class="bg-white rounded-3xl p-4 shadow-sm">
-          <p class="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
-            <span>🪞</span> 基于本人形象的发型 & 妆容效果
-          </p>
-          <div class="flex items-center gap-3 bg-blush-50/60 rounded-2xl px-4 py-3 mt-2">
-            <span class="text-2xl">🚧</span>
-            <div>
-              <p class="text-xs font-semibold text-gray-600">功能建设中</p>
-              <p class="text-[11px] text-gray-400 leading-snug mt-0.5">
-                正在接入换脸 AI 模型，将支持在你本人照片上<br/>模拟不同发型、发色与妆容效果
-              </p>
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-sm font-semibold text-gray-700 flex items-center gap-2"><span>✂️</span> 发型参考</p>
+            <span v-if="generatingHair" class="text-[11px] text-blush-400 animate-pulse">生成中…</span>
+            <button v-else-if="hairError" class="text-[11px] text-blush-400" @click="generateHair">重试</button>
+          </div>
+          <p class="text-[11px] text-gray-400 mb-3">适合你季型的发色与发型方向</p>
+          <div class="grid grid-cols-2 gap-2">
+            <template v-if="generatingHair">
+              <div v-for="i in 2" :key="i" class="aspect-[3/4] rounded-2xl bg-blush-50 animate-pulse" />
+            </template>
+            <img v-for="(url, i) in hairImages" v-else :key="i" :src="url" class="aspect-[3/4] rounded-2xl object-cover w-full bg-gray-100" />
+          </div>
+          <div class="flex gap-2 mt-3">
+            <div v-for="hex in result.hairColors" :key="hex" class="w-8 h-8 rounded-xl shadow-sm" :style="{ backgroundColor: hex }" />
+            <span class="text-[11px] text-gray-400 self-center ml-1">推荐发色</span>
+          </div>
+        </div>
+
+        <!-- ⑤ AI 妆容参考 -->
+        <div class="bg-white rounded-3xl p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-sm font-semibold text-gray-700 flex items-center gap-2"><span>💄</span> 妆容参考</p>
+            <span v-if="generatingMakeup" class="text-[11px] text-blush-400 animate-pulse">生成中…</span>
+            <button v-else-if="makeupError" class="text-[11px] text-blush-400" @click="generateMakeup">重试</button>
+          </div>
+          <p class="text-[11px] text-gray-400 mb-3">适合你季型的妆容风格</p>
+          <div class="grid grid-cols-2 gap-2">
+            <template v-if="generatingMakeup">
+              <div v-for="i in 2" :key="i" class="aspect-[3/4] rounded-2xl bg-blush-50 animate-pulse" />
+            </template>
+            <img v-for="(url, i) in makeupImages" v-else :key="i" :src="url" class="aspect-[3/4] rounded-2xl object-cover w-full bg-gray-100" />
+          </div>
+          <div class="space-y-2 mt-3">
+            <div v-for="sec in makeupSections" :key="sec.key" class="flex items-center gap-2">
+              <span class="text-sm w-4">{{ sec.icon }}</span>
+              <span class="text-[11px] text-gray-400 w-8">{{ sec.label }}</span>
+              <div class="flex gap-1.5">
+                <div v-for="hex in result.makeupColors[sec.key]" :key="hex"
+                  class="w-6 h-6 rounded-full shadow-sm border border-white"
+                  :style="{ backgroundColor: hex }" />
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- ⑦ 应避开 -->
+        <!-- ⑥ 应避开 -->
         <div class="bg-white rounded-3xl p-4 shadow-sm">
-          <p class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <span>🚫</span> 应避开的颜色
-          </p>
-          <div class="flex gap-3">
-            <div
-              v-for="hex in result.avoidColors"
-              :key="hex"
-              class="relative w-12 h-12 rounded-xl shadow-sm"
-              :style="{ backgroundColor: hex }"
-            >
+          <p class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2"><span>🚫</span> 应避开的颜色</p>
+          <div class="flex gap-2.5">
+            <div v-for="hex in result.avoidColors" :key="hex" class="relative w-12 h-12 rounded-xl shadow-sm" :style="{ backgroundColor: hex }">
               <span class="absolute inset-0 flex items-center justify-center text-white/80 text-lg font-bold drop-shadow">✕</span>
             </div>
           </div>
@@ -313,13 +326,6 @@ async function saveImage() {
 </template>
 
 <style scoped>
-.slide-down-enter-active,
-.slide-down-leave-active {
-  transition: all 0.25s ease;
-}
-.slide-down-enter-from,
-.slide-down-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
+.slide-down-enter-active, .slide-down-leave-active { transition: all 0.25s ease; }
+.slide-down-enter-from, .slide-down-leave-to { opacity: 0; transform: translateY(-8px); }
 </style>
