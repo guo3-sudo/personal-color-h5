@@ -1,193 +1,180 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMediaPipe } from '@/composables/useMediaPipe'
 import { analyzeSkinColor, classifySeason } from '@/data/colorAnalysis'
 import { useDiagnosisStore } from '@/stores/diagnosis'
 
 const router = useRouter()
 const store = useDiagnosisStore()
-const { init, isLoading, loadError, detectOnImage, extractFaceRegionCanvas } = useMediaPipe()
 
-const videoRef = ref<HTMLVideoElement | null>(null)
-const stream = ref<MediaStream | null>(null)
-const faceDetected = ref(false)
-const capturing = ref(false)
-const initError = ref<string | null>(null)
-const modelReady = ref(false)
-const faceCheckInterval = ref<ReturnType<typeof setInterval> | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const previewUrl = ref<string | null>(null)
+const analyzing = ref(false)
+const errorMsg = ref<string | null>(null)
 
-onMounted(async () => {
-  try {
-    stream.value = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 960 } },
-      audio: false,
-    })
-    if (videoRef.value) {
-      videoRef.value.srcObject = stream.value
-      await videoRef.value.play()
-    }
-  } catch {
-    initError.value = '无法访问摄像头，请检查权限设置'
-    return
-  }
-
-  try {
-    await init()
-    modelReady.value = true
-    startFaceDetection()
-  } catch {
-    initError.value = loadError.value ?? '模型初始化失败'
-  }
-})
-
-onUnmounted(() => {
-  stopCamera()
-  if (faceCheckInterval.value) clearInterval(faceCheckInterval.value)
-})
-
-function stopCamera() {
-  stream.value?.getTracks().forEach((t) => t.stop())
-  stream.value = null
+function triggerUpload() {
+  fileInputRef.value?.click()
 }
 
-function startFaceDetection() {
-  faceCheckInterval.value = setInterval(() => {
-    if (!videoRef.value || !modelReady.value || capturing.value) return
-    const canvas = document.createElement('canvas')
-    canvas.width = videoRef.value.videoWidth
-    canvas.height = videoRef.value.videoHeight
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.drawImage(videoRef.value, 0, 0)
-    const img = new Image()
-    img.src = canvas.toDataURL('image/jpeg', 0.8)
-    img.onload = () => {
-      const result = detectOnImage(img)
-      faceDetected.value = (result?.faceLandmarks?.length ?? 0) > 0
-    }
-  }, 800)
+function onFileSelected(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  errorMsg.value = null
+  const reader = new FileReader()
+  reader.onload = (ev) => {
+    previewUrl.value = ev.target?.result as string
+  }
+  reader.readAsDataURL(file)
 }
 
-async function capture() {
-  if (!videoRef.value || !modelReady.value || capturing.value) return
-  capturing.value = true
+function resetPhoto() {
+  previewUrl.value = null
+  errorMsg.value = null
+  if (fileInputRef.value) fileInputRef.value.value = ''
+}
 
-  const video = videoRef.value
-  const canvas = document.createElement('canvas')
-  canvas.width = video.videoWidth
-  canvas.height = video.videoHeight
-  const ctx = canvas.getContext('2d')!
-  ctx.drawImage(video, 0, 0)
-
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
-  store.setCapturedImage(dataUrl)
+function analyzePhoto() {
+  if (!previewUrl.value || analyzing.value) return
+  analyzing.value = true
+  errorMsg.value = null
 
   const img = new Image()
-  img.src = dataUrl
+  img.src = previewUrl.value
   img.onload = () => {
-    const detection = detectOnImage(img)
-    if (!detection || detection.faceLandmarks.length === 0) {
-      store.setError('未检测到人脸，请正对摄像头')
-      capturing.value = false
-      return
-    }
+    const canvas = document.createElement('canvas')
+    canvas.width = img.width
+    canvas.height = img.height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(img, 0, 0)
 
-    const regionData = extractFaceRegionCanvas(img, detection.faceLandmarks[0], canvas.width, canvas.height)
-    if (!regionData) {
-      store.setError('面部区域提取失败，请重试')
-      capturing.value = false
-      return
-    }
+    const cx = img.width / 2
+    const cy = img.height * 0.38
+    const rx = img.width * 0.28
+    const ry = img.height * 0.28
+    const x = Math.max(0, Math.round(cx - rx))
+    const y = Math.max(0, Math.round(cy - ry))
+    const w = Math.min(img.width - x, Math.round(rx * 2))
+    const h = Math.min(img.height - y, Math.round(ry * 2))
 
+    const regionData = ctx.getImageData(x, y, w, h)
     const analysis = analyzeSkinColor(regionData)
+
     if (!analysis) {
-      store.setError('肤色分析失败，请确保光线充足')
-      capturing.value = false
+      errorMsg.value = '未能提取有效肤色，建议上传光线充足的面部正面照'
+      analyzing.value = false
       return
     }
 
     const diagnosis = classifySeason(analysis)
+    store.setCapturedImage(previewUrl.value!)
     store.setResult(analysis, diagnosis)
-    stopCamera()
-    if (faceCheckInterval.value) clearInterval(faceCheckInterval.value)
     router.push('/analyzing')
   }
+  img.onerror = () => {
+    errorMsg.value = '照片读取失败，请重新选择'
+    analyzing.value = false
+  }
 }
+
+const tips = [
+  { icon: '☀️', text: '自然光或白光环境' },
+  { icon: '🙅', text: '避免强烈滤镜或美颜' },
+  { icon: '🔍', text: '面部居中，五官清晰' },
+  { icon: '💆', text: '素颜或淡妆为佳' },
+]
 </script>
 
 <template>
-  <div class="relative h-full w-full bg-black overflow-hidden">
-    <video
-      ref="videoRef"
-      class="absolute inset-0 h-full w-full object-cover"
-      playsinline
-      muted
-    />
-
-    <div v-if="initError" class="absolute inset-0 flex flex-col items-center justify-center bg-black/80 px-8 text-center">
-      <span class="text-4xl mb-4">📷</span>
-      <p class="text-white text-sm leading-relaxed">{{ initError }}</p>
+  <div class="h-full w-full flex flex-col bg-ivory overflow-hidden">
+    <div class="flex items-center px-4 py-3 border-b border-warm-stone/50 shrink-0">
       <button
-        class="mt-6 px-6 py-3 rounded-full bg-white/20 text-white text-sm"
+        class="w-9 h-9 rounded-full bg-warm-stone flex items-center justify-center"
         @click="router.back()"
-      >返回</button>
+      >
+        <span class="text-gray-600 text-sm">←</span>
+      </button>
+      <span class="flex-1 text-center text-sm font-semibold text-gray-800">上传照片</span>
+      <div class="w-9" />
     </div>
 
-    <template v-else>
-      <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-        <svg class="w-64 h-72" viewBox="0 0 256 288" fill="none">
-          <defs>
-            <mask id="oval-mask">
-              <rect width="256" height="288" fill="white" />
-              <ellipse cx="128" cy="140" rx="90" ry="118" fill="black" />
-            </mask>
-          </defs>
-          <rect width="256" height="288" fill="black" opacity="0.45" mask="url(#oval-mask)" />
-          <ellipse
-            cx="128" cy="140" rx="90" ry="118"
-            :stroke="faceDetected ? '#86efac' : 'white'"
-            stroke-width="2.5"
-            stroke-dasharray="8 5"
-            fill="none"
+    <div class="flex-1 overflow-y-auto px-5 py-5 flex flex-col gap-5">
+      <div
+        v-if="!previewUrl"
+        class="rounded-3xl border-2 border-dashed border-blush-200 bg-blush-50/50 flex flex-col items-center justify-center gap-4 py-14 cursor-pointer active:bg-blush-100/50 transition-colors"
+        @click="triggerUpload"
+      >
+        <span class="text-6xl">🤳</span>
+        <div class="text-center">
+          <p class="text-base font-semibold text-gray-700">点击上传照片</p>
+          <p class="text-xs text-gray-400 mt-1">支持 JPG / PNG / HEIC</p>
+        </div>
+        <div class="px-6 py-2.5 rounded-full bg-gradient-to-r from-blush-300 to-blush-500 text-white text-sm font-medium shadow-sm">
+          从相册选择
+        </div>
+      </div>
+
+      <div v-else class="relative rounded-3xl overflow-hidden shadow-md bg-black">
+        <img
+          :src="previewUrl"
+          class="block w-full"
+          style="max-height: 380px; object-fit: cover;"
+          alt="preview"
+        />
+        <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div
+            class="border-2 border-dashed border-white/80 rounded-full"
+            style="width: 52%; aspect-ratio: 3/4; box-shadow: 0 0 0 9999px rgba(0,0,0,0.35);"
           />
-        </svg>
-      </div>
-
-      <div class="absolute top-safe-top top-8 left-0 right-0 flex flex-col items-center gap-2 pointer-events-none">
-        <div class="bg-black/40 backdrop-blur-sm rounded-full px-4 py-1.5">
-          <p class="text-white text-xs text-center">
-            {{ isLoading ? '模型加载中…' : faceDetected ? '✓ 已识别人脸，点击拍照' : '请将面部置于框内' }}
-          </p>
         </div>
-        <div v-if="isLoading" class="w-32 h-1 bg-white/20 rounded-full overflow-hidden">
-          <div class="h-full bg-white/60 rounded-full animate-pulse w-2/3" />
+        <button
+          class="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 text-white text-xs flex items-center justify-center"
+          @click="resetPhoto"
+        >✕</button>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2.5">
+        <div
+          v-for="tip in tips"
+          :key="tip.text"
+          class="bg-white rounded-2xl px-3 py-3 flex items-center gap-2.5 shadow-sm"
+        >
+          <span class="text-xl shrink-0">{{ tip.icon }}</span>
+          <span class="text-xs text-gray-600 leading-snug">{{ tip.text }}</span>
         </div>
       </div>
 
-      <div class="absolute bottom-safe-bottom bottom-12 left-0 right-0 flex items-center justify-center gap-8">
-        <button
-          class="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center"
-          @click="router.back()"
-        >
-          <span class="text-white text-lg">←</span>
-        </button>
+      <p v-if="errorMsg" class="text-center text-sm text-red-400 bg-red-50 rounded-2xl px-4 py-3">
+        {{ errorMsg }}
+      </p>
+    </div>
 
-        <button
-          class="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 active:scale-95"
-          :class="[
-            faceDetected && modelReady && !capturing
-              ? 'bg-white shadow-lg shadow-white/30'
-              : 'bg-white/40',
-          ]"
-          :disabled="!faceDetected || !modelReady || capturing"
-          @click="capture"
-        >
-          <div class="w-16 h-16 rounded-full border-2 border-gray-200 bg-white" />
-        </button>
+    <div class="px-5 pb-8 pt-3 shrink-0 border-t border-warm-stone/30 bg-ivory">
+      <button
+        v-if="!previewUrl"
+        class="w-full py-4 rounded-2xl bg-gradient-to-r from-blush-300 to-blush-500 text-white font-semibold shadow-md active:scale-95 transition-transform"
+        @click="triggerUpload"
+      >选择照片</button>
 
-        <div class="w-12 h-12" />
+      <div v-else class="flex gap-3">
+        <button
+          class="flex-1 py-4 rounded-2xl border-2 border-blush-200 text-blush-400 font-semibold active:scale-95 transition-transform"
+          @click="resetPhoto"
+        >重新选择</button>
+        <button
+          class="flex-1 py-4 rounded-2xl font-semibold shadow-md active:scale-95 transition-transform"
+          :class="analyzing ? 'bg-gray-200 text-gray-400' : 'bg-gradient-to-r from-blush-300 to-blush-500 text-white'"
+          :disabled="analyzing"
+          @click="analyzePhoto"
+        >{{ analyzing ? '分析中…' : '开始分析' }}</button>
       </div>
-    </template>
+    </div>
+
+    <input
+      ref="fileInputRef"
+      type="file"
+      accept="image/*"
+      class="hidden"
+      @change="onFileSelected"
+    />
   </div>
 </template>
