@@ -80,12 +80,11 @@ exports.handler = async (event) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'black-forest-labs/FLUX.1-schnell',
+        model: 'Kwai-Kolors/Kolors',
         prompt,
         image_size: '512x768',
-        num_inference_steps: 4,
-        guidance_scale: 0,
-        seed: -1,
+        num_inference_steps: 20,
+        guidance_scale: 5,
         n: 1,
       }),
     })
@@ -102,7 +101,8 @@ exports.handler = async (event) => {
     const imgRes = await fetch(url)
     const buf = await imgRes.arrayBuffer()
     const b64 = Buffer.from(buf).toString('base64')
-    const mime = imgRes.headers.get('content-type') || 'image/jpeg'
+    const ct = imgRes.headers.get('content-type') || ''
+    const mime = ct.startsWith('image/') ? ct : 'image/jpeg'
     return `data:${mime};base64,${b64}`
   }
 
