@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+@theme {
+  --color-blush-50: #fff5f7;
+  --color-blush-100: #ffe0e8;
+  --color-blush-200: #ffb3c8;
+  --color-blush-300: #ff80a8;
+  --color-blush-400: #ff4d88;
+  --color-blush-500: #ff1a6a;
+  --color-blush-600: #e6005e;
+  --color-blush-700: #b30049;
+  --color-blush-800: #800034;
+  --color-blush-900: #4d001f;
+
+  --color-ivory: #faf7f2;
+  --color-warm-stone: #e8e0d5;
+  --color-muted-rose: #d4b5b5;
+
+  --font-sans: 'Noto Sans KR', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+#app {
+  height: 100%;
+  overflow: hidden;
+}
